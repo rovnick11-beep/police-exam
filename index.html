@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ชุดจำลองการสอบ นายสิบตำรวจ อำนวยการ (ชุดที่ 5)</title>
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background-color: #f4f7f6; color: #333; margin: 0; padding: 20px; }
+        h1 { text-align: center; color: #1a365d; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .score-board { position: sticky; top: 0; background: #2b6cb0; color: white; padding: 15px; text-align: center; font-size: 20px; font-weight: bold; border-radius: 8px; z-index: 100; margin-bottom: 20px; }
+        .question-card { border-bottom: 1px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 20px; }
+        .question-text { font-size: 18px; font-weight: bold; margin-bottom: 15px; }
+        .options-list { list-style-type: none; padding: 0; }
+        .option { background: #edf2f7; margin-bottom: 10px; padding: 10px 15px; border-radius: 6px; cursor: pointer; transition: 0.2s; border: 2px solid transparent; }
+        .option:hover { background: #e2e8f0; }
+        .option.selected { background: #bee3f8; border-color: #3182ce; }
+        .option.correct { background: #c6f6d5; border-color: #38a169; }
+        .option.wrong { background: #fed7d7; border-color: #e53e3e; }
+        .option.locked { pointer-events: none; }
+        .explanation { margin-top: 15px; padding: 15px; background: #fffff0; border-left: 4px solid #ecc94b; display: none; }
+        .explanation.visible { display: block; }
+
+        /* Scratchpad Canvas */
+        #scratchpad-container { position: fixed; right: 20px; bottom: 20px; width: 300px; background: white; border: 2px solid #cbd5e0; border-radius: 8px; box-shadow: 0 10px 15px rgba(0,0,0,0.1); z-index: 1000; }
+        .scratchpad-header { background: #2d3748; color: white; padding: 10px; cursor: pointer; text-align: center; font-weight: bold; border-radius: 6px 6px 0 0; }
+        #canvas-area { display: none; }
+        canvas { border-bottom: 1px solid #cbd5e0; cursor: crosshair; }
+        .canvas-tools { display: flex; justify-content: space-between; padding: 10px; }
+        button { padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; background: #3182ce; color: white; font-weight: bold; }
+        button:hover { background: #2b6cb0; }
+        .clear-btn { background: #e53e3e; }
+        .clear-btn:hover { background: #c53030; }
+        .submit-btn { width: 100%; padding: 15px; font-size: 18px; background: #38a169; margin-top: 20px; }
+        .submit-btn:hover { background: #2f855a; }
+    </style>
+</head>
+<body>
+
+<div id="scratchpad-container">
+    <div class="scratchpad-header" onclick="toggleCanvas()">📝 กระดาษทด (วิชาคณิตศาสตร์) - คลิกเพื่อเปิด/ปิด</div>
+    <div id="canvas-area">
+        <canvas id="scratchCanvas" width="296" height="300"></canvas>
+        <div class="canvas-tools">
+            <button class="clear-btn" onclick="clearCanvas()">ลบกระดาษทด</button>
+            <button onclick="toggleCanvas()">ย่อเก็บ</button>
+        </div>
+    </div>
+</div>
+
+<div class="container">
+    <h1>ชุดจำลองการสอบ นายสิบตำรวจ อำนวยการ (ชุดที่ 5)</h1>
+    <div class="score-board">คะแนนของคุณ: <span id="score">0</span> / 150</div>
+    <div id="quiz-box"></div>
+    <button class="submit-btn" onclick="submitExam()">ส่งข้อสอบ / ดูเฉลยทั้งหมด</button>
+</div>
+<script src="questions.js"></script>
+<script>
+		let userSelections = {};
+    let changeCounts = {};
+    let isLocked = {};
+    let score = 0;
+
+    function initQuiz() {
+        const box = document.getElementById("quiz-box");
+        questions.forEach((q, index) => {
+            let html = `<div class="question-card" id="q-card-${q.id}">
+                <div class="question-text">${index + 1}. ${q.text}</div>
+                <ul class="options-list">`;
+
+            q.options.forEach((opt, optIndex) => {
+                html += `<li class="option" id="q${q.id}-opt${optIndex}" onclick="selectOption(${q.id}, ${optIndex})">${opt}</li>`;
+            });
+
+            html += `</ul><div class="explanation" id="exp-${q.id}">${q.explanation}</div></div>`;
+            box.innerHTML += html;
+        });
+    }
+
+    function selectOption(qId, optIndex) {
+        if (isLocked[qId]) return;
+        if (userSelections[qId] === optIndex) return;
+
+        // บันทึกจำนวนครั้งที่เปลี่ยน
+        changeCounts[qId] = (changeCounts[qId] || 0) + 1;
+
+        // หากเปลี่ยนคำตอบเกิน 1 ครั้ง (คลิกครั้งที่ 2) จะทำการล็อกทันที
+        if (changeCounts[qId] >= 2) {
+            isLocked[qId] = true;
+        }
+
+        userSelections[qId] = optIndex;
+        updateUI(qId);
+        calculateScore();
+
+        // ถ้าโดนล็อกแล้ว ให้แสดงเฉลย
+        if (isLocked[qId]) {
+            revealAnswer(qId);
+        }
+    }
+
+    function updateUI(qId) {
+        const qData = questions.find(q => q.id === qId);
+        const options = document.querySelectorAll(`#q-card-${qId} .option`);
+
+        options.forEach(opt => opt.classList.remove('selected', 'locked'));
+
+        if (userSelections[qId] !== undefined) {
+            document.getElementById(`q${qId}-opt${userSelections[qId]}`).classList.add('selected');
+        }
+
+        if (isLocked[qId]) {
+            options.forEach(opt => opt.classList.add('locked'));
+        }
+    }
+
+    function revealAnswer(qId) {
+        const qData = questions.find(q => q.id === qId);
+        const options = document.querySelectorAll(`#q-card-${qId} .option`);
+
+        // เปลี่ยนสีตัวเลือก
+        options.forEach((opt, idx) => {
+            if (idx === qData.answer) {
+                opt.classList.add('correct');
+            } else if (idx === userSelections[qId] && idx !== qData.answer) {
+                opt.classList.add('wrong');
+            }
+        });
+
+        // แสดงคำอธิบาย
+        document.getElementById(`exp-${qId}`).classList.add('visible');
+    }
+
+    function calculateScore() {
+        let currentScore = 0;
+        questions.forEach(q => {
+            if (userSelections[q.id] === q.answer) {
+                currentScore++;
+            }
+        });
+        document.getElementById("score").innerText = currentScore;
+    }
+
+    function submitExam() {
+        questions.forEach(q => {
+            isLocked[q.id] = true;
+            updateUI(q.id);
+            revealAnswer(q.id);
+        });
+        calculateScore();
+        alert("ทำรายการส่งข้อสอบเรียบร้อยแล้ว ตรวจสอบเฉลยได้ในแต่ละข้อ");
+    }
+
+    // ระบบกระดาษทด (Canvas)
+    const canvas = document.getElementById("scratchCanvas");
+    const ctx = canvas.getContext("2d");
+    let painting = false;
+
+    function toggleCanvas() {
+        const area = document.getElementById("canvas-area");
+        area.style.display = area.style.display === "block" ? "none" : "block";
+    }
+
+    function clearCanvas() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function startPosition(e) {
+        painting = true;
+        draw(e);
+    }
+
+    function endPosition() {
+        painting = false;
+        ctx.beginPath();
+    }
+
+    function draw(e) {
+        if (!painting) return;
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        let x = e.clientX - rect.left;
+        let y = e.clientY - rect.top;
+
+        if(e.touches) {
+            x = e.touches[0].clientX - rect.left;
+            y = e.touches[0].clientY - rect.top;
+        }
+
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        ctx.strokeStyle = "#2d3748";
+
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+    }
+
+    canvas.addEventListener("mousedown", startPosition);
+    canvas.addEventListener("mouseup", endPosition);
+    canvas.addEventListener("mousemove", draw);
+
+    // รองรับการทัชหน้าจอบนมือถือ
+    canvas.addEventListener("touchstart", startPosition, {passive: false});
+    canvas.addEventListener("touchend", endPosition);
+    canvas.addEventListener("touchmove", draw, {passive: false});
+
+    window.onload = initQuiz;
+</script>
+<script src="questions.js"></script>
+</body>
+</html>
